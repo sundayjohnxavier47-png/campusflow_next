@@ -259,7 +259,7 @@ def run_menu(tickets):
             action(tickets)
         except ValueError as error:
             tickets[:] = snapshot
-            print(f"Invalid input: {error}\n")
+            print(f"Cannot complete action: {error}\n")
         except OSError as error:
             tickets[:] = snapshot
             print(f"Could not save tickets: {error}")
