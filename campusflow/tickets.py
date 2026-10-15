@@ -1,6 +1,11 @@
-
-ALLOWED_CATEGORIES = ["Network", "Hardware", "Software", "Other"]
-ALLOWED_URGENCY = ["low", "medium", "high"]
+from campusflow.validation import (
+    ALLOWED_CATEGORIES,  # re-exported so old imports keep working
+    ALLOWED_URGENCY,
+    validate_affected_users,
+    validate_category,
+    validate_title,
+    validate_urgency,
+)
 
 
 def calculate_priority(urgency, affected_users):
@@ -15,33 +20,12 @@ def calculate_priority(urgency, affected_users):
 
 
 def create_ticket(tickets, title, category, urgency, affected_users):
-    
-    if not isinstance(title, str) or not title.strip():
-        raise ValueError("Title cannot be blank.")
+    # Validate EVERYTHING first. Nothing is changed until all checks pass.
+    title = validate_title(title)
+    category = validate_category(category)
+    urgency = validate_urgency(urgency)
+    affected_users = validate_affected_users(affected_users)
 
-    
-    if not isinstance(category, str):
-        raise ValueError("Invalid category.")
-
-    category = category.strip().title()
-
-    if category not in ALLOWED_CATEGORIES:
-        raise ValueError("Category must be Network, Hardware, Software, or Other.")
-
-    
-    if not isinstance(urgency, str):
-        raise ValueError("Invalid urgency.")
-
-    urgency = urgency.strip().lower()
-
-    if urgency not in ALLOWED_URGENCY:
-        raise ValueError("Urgency must be low, medium, or high.")
-
-    
-    if type(affected_users) is not int or affected_users <= 0:
-        raise ValueError("Affected users must be a positive integer.")
-
-    
     numbers = [
         int(ticket["id"][1:])
         for ticket in tickets
@@ -53,21 +37,19 @@ def create_ticket(tickets, title, category, urgency, affected_users):
     next_number = max(numbers, default=0) + 1
     ticket_id = f"T{next_number:03d}"
 
-    
     priority = calculate_priority(urgency, affected_users)
 
-    
     ticket = {
         "id": ticket_id,
-        "title": title.strip(),
+        "title": title,
         "category": category,
         "urgency": urgency,
         "affected_users": affected_users,
         "priority": priority,
         "status": "open",
-        "assigned_to": None
+        "assigned_to": None,
+        "notes": [],
     }
 
     tickets.append(ticket)
-
     return ticket
