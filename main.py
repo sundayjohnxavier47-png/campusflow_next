@@ -1,4 +1,18 @@
+import copy
+
+from campusflow.notes import add_note
+from campusflow.reports import format_report, generate_report
+from campusflow.search import (
+    format_result_line,
+    parse_category_filter,
+    parse_priority_filter,
+    parse_status_filter,
+    search_tickets,
+    sort_by_priority,
+)
+from campusflow.storage import load_tickets, save_tickets
 from campusflow.tickets import create_ticket
+from campusflow.check_understanding import NOTES_FILE, run_check
 from campusflow.workflow import (
     assign_ticket,
     change_status,
@@ -6,8 +20,6 @@ from campusflow.workflow import (
     get_work_queue,
     reopen_ticket,
 )
-from campusflow.reports import generate_report
-from campusflow.storage import load_tickets, save_tickets
 
 MENU = """
 ===== CampusFlow =====
@@ -19,7 +31,12 @@ MENU = """
 6. Reopen ticket
 7. Work queue
 8. Report
-9. Exit
+9. Add follow-up note
+10. View ticket notes
+11. Search tickets
+12. Search tickets (sorted by priority)
+13. Engineering Understanding Check
+0. Exit
 """
 
 
@@ -30,6 +47,26 @@ def show_ticket(ticket):
         f'urgency: {ticket["urgency"]} | users: {ticket["affected_users"]} | '
         f'priority: {ticket["priority"]} | status: {ticket["status"]} | {assigned}'
     )
+
+
+def ask(prompt, validator):
+    """Keep asking until the validator accepts the input (used for filters)."""
+    while True:
+        try:
+            return validator(input(prompt))
+        except ValueError as error:
+            print(f"  Error: {error}")
+
+
+def note_number(note):
+    """The number inside a note ID: 'N010' -> 10, so notes sort N002 before N010."""
+    digits = "".join(char for char in str(note.get("note_id", "")) if char.isdigit())
+    return int(digits) if digits else 0
+
+
+# ---------------------------------------------------------------------------
+# Original handlers (unchanged)
+# ---------------------------------------------------------------------------
 
 
 def handle_create(tickets):
@@ -95,15 +132,72 @@ def handle_queue(tickets):
         show_ticket(ticket)
 
 
+# ---------------------------------------------------------------------------
+# Engineer B: report, notes, search and the understanding check
+# ---------------------------------------------------------------------------
+
+
 def handle_report(tickets):
-    report = generate_report(tickets)
-    print(f'Total tickets: {report["total"]}')
-    print("By status:")
-    for status, count in report["by_status"].items():
-        print(f"  {status}: {count}")
-    print("By priority:")
-    for priority, count in report["by_priority"].items():
-        print(f"  {priority}: {count}")
+    print(format_report(generate_report(tickets)))
+
+
+def handle_note_add(tickets):
+    ticket_id = input("Ticket ID: ")
+    author = input("Your name (note author): ")
+    message = input("Note message (5 to 300 characters): ")
+    note = add_note(tickets, ticket_id, author, message)
+    save_tickets(tickets)
+    print(f"Added note {note['note_id']} to ticket {ticket_id.strip().upper()}.")
+
+
+def handle_note_view(tickets):
+    ticket = find_ticket(tickets, input("Ticket ID: "))
+    notes = sorted(ticket.get("notes", []), key=note_number)
+    if not notes:
+        print(f"Ticket {ticket['id']} has no notes.")
+        return
+    for note in notes:
+        print(f"{note['note_id']} | {note['author']} | {note['message']}")
+
+
+def read_search_filters():
+    """Ask for the four optional filters; blank means 'do not filter'."""
+    title = input("Title contains (blank = any): ")
+    category = ask(
+        "Category (Network/Hardware/Software/Other; blank = any): ",
+        parse_category_filter,
+    )
+    status = ask(
+        "Status (open/in_progress/resolved; blank = any): ", parse_status_filter
+    )
+    priority = ask(
+        "Priority (critical/high/medium/low; blank = any): ", parse_priority_filter
+    )
+    return title, category, status, priority
+
+
+def show_results(results):
+    if not results:
+        print("No matching tickets.")
+        return
+    for ticket in results:
+        print(format_result_line(ticket))
+    print(f"{len(results)} ticket(s) found.")
+
+
+def handle_search(tickets):
+    title, category, status, priority = read_search_filters()
+    show_results(search_tickets(tickets, title, category, status, priority))
+
+
+def handle_search_sorted(tickets):
+    title, category, status, priority = read_search_filters()
+    results = search_tickets(tickets, title, category, status, priority)
+    show_results(sort_by_priority(results))
+
+
+def handle_understanding_check(tickets):
+    run_check(notes_file=NOTES_FILE)
 
 
 ACTIONS = {
@@ -115,7 +209,39 @@ ACTIONS = {
     "6": handle_reopen,
     "7": handle_queue,
     "8": handle_report,
+    "9": handle_note_add,
+    "10": handle_note_view,
+    "11": handle_search,
+    "12": handle_search_sorted,
+    "13": handle_understanding_check,
 }
+
+
+def run_menu(tickets):
+    while True:
+        print(MENU)
+        choice = input("Choose an option: ").strip()
+
+        if choice == "0":
+            print("Goodbye.")
+            break
+
+        action = ACTIONS.get(choice)
+        if action is None:
+            print("Invalid option. Choose a number from the menu.")
+            continue
+
+        # Safety net: if an action fails part-way (for example the disk is
+        # full), put the in-memory tickets back exactly as they were.
+        snapshot = copy.deepcopy(tickets)
+        try:
+            action(tickets)
+        except ValueError as error:
+            tickets[:] = snapshot
+            print(f"Error: {error}")
+        except OSError as error:
+            tickets[:] = snapshot
+            print(f"Could not save tickets: {error}")
 
 
 def main():
@@ -126,23 +252,10 @@ def main():
         print("Fix or remove data/tickets.json yourself. Nothing was changed.")
         return
 
-    while True:
-        print(MENU)
-        choice = input("Choose an option: ").strip()
-
-        if choice == "9":
-            print("Goodbye.")
-            break
-
-        action = ACTIONS.get(choice)
-        if action is None:
-            print("Invalid option. Choose 1-9.")
-            continue
-
-        try:
-            action(tickets)
-        except ValueError as error:
-            print(f"Error: {error}")
+    try:
+        run_menu(tickets)
+    except (EOFError, KeyboardInterrupt):
+        print("\nGoodbye.")
 
 
 if __name__ == "__main__":
