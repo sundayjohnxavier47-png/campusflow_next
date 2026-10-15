@@ -1,6 +1,7 @@
 import copy
 
-from campusflow.notes import add_note
+from campusflow.check_understanding import NOTES_FILE, run_check
+from campusflow.notes import add_note, get_notes
 from campusflow.reports import format_report, generate_report
 from campusflow.search import (
     format_result_line,
@@ -12,7 +13,16 @@ from campusflow.search import (
 )
 from campusflow.storage import load_tickets, save_tickets
 from campusflow.tickets import create_ticket
-from campusflow.check_understanding import NOTES_FILE, run_check
+from campusflow.validation import (
+    parse_affected_users,
+    validate_category,
+    validate_note_author,
+    validate_note_message,
+    validate_staff_name,
+    validate_status,
+    validate_title,
+    validate_urgency,
+)
 from campusflow.workflow import (
     assign_ticket,
     change_status,
@@ -50,35 +60,41 @@ def show_ticket(ticket):
 
 
 def ask(prompt, validator):
-    """Keep asking until the validator accepts the input (used for filters)."""
+    """Keep asking until the validator accepts the input.
+
+    Blank or invalid input prints the validator's friendly message and asks
+    again. Nothing is changed or saved while we are still asking.
+    """
     while True:
         try:
             return validator(input(prompt))
         except ValueError as error:
-            print(f"  Error: {error}")
+            print(f"Invalid input: {error}\n")
 
 
-def note_number(note):
-    """The number inside a note ID: 'N010' -> 10, so notes sort N002 before N010."""
-    digits = "".join(char for char in str(note.get("note_id", "")) if char.isdigit())
-    return int(digits) if digits else 0
+def ask_ticket(tickets):
+    """Keep asking until the text is a real ticket ID that exists."""
+    return ask("Ticket ID: ", lambda text: find_ticket(tickets, text))
+
+
+def parse_new_status(text):
+    """Only in_progress or resolved can be chosen from the menu."""
+    status = validate_status(text)
+    if status == "open":
+        raise ValueError("Choose in_progress or resolved. Use option 6 to reopen.")
+    return status
 
 
 # ---------------------------------------------------------------------------
-# Original handlers (unchanged)
+# Ticket handlers
 # ---------------------------------------------------------------------------
 
 
 def handle_create(tickets):
-    title = input("Title: ")
-    category = input("Category (Network/Hardware/Software/Other): ")
-    urgency = input("Urgency (low/medium/high): ")
-    users_text = input("Affected users: ")
-
-    try:
-        affected_users = int(users_text)
-    except ValueError:
-        affected_users = users_text  # create_ticket will reject it clearly
+    title = ask("Title: ", validate_title)
+    category = ask("Category (Network/Hardware/Software/Other): ", validate_category)
+    urgency = ask("Urgency (low/medium/high): ", validate_urgency)
+    affected_users = ask("Affected users: ", parse_affected_users)
 
     ticket = create_ticket(tickets, title, category, urgency, affected_users)
     save_tickets(tickets)
@@ -95,29 +111,30 @@ def handle_list(tickets):
 
 
 def handle_view(tickets):
-    show_ticket(find_ticket(tickets, input("Ticket ID: ")))
+    show_ticket(ask_ticket(tickets))
 
 
 def handle_assign(tickets):
-    ticket_id = input("Ticket ID: ")
-    staff = input("Staff member name: ")
-    ticket = assign_ticket(tickets, ticket_id, staff)
+    ticket = ask_ticket(tickets)
+    staff = ask("Staff member name: ", validate_staff_name)
+    ticket = assign_ticket(tickets, ticket["id"], staff)
     save_tickets(tickets)
     print("Assigned:")
     show_ticket(ticket)
 
 
 def handle_status(tickets):
-    ticket_id = input("Ticket ID: ")
-    new_status = input("New status (in_progress/resolved): ")
-    ticket = change_status(tickets, ticket_id, new_status)
+    ticket = ask_ticket(tickets)
+    new_status = ask("New status (in_progress/resolved): ", parse_new_status)
+    ticket = change_status(tickets, ticket["id"], new_status)
     save_tickets(tickets)
     print("Updated:")
     show_ticket(ticket)
 
 
 def handle_reopen(tickets):
-    ticket = reopen_ticket(tickets, input("Ticket ID: "))
+    ticket = ask_ticket(tickets)
+    ticket = reopen_ticket(tickets, ticket["id"])
     save_tickets(tickets)
     print("Reopened:")
     show_ticket(ticket)
@@ -133,7 +150,7 @@ def handle_queue(tickets):
 
 
 # ---------------------------------------------------------------------------
-# Engineer B: report, notes, search and the understanding check
+# Report, notes, search and the understanding check
 # ---------------------------------------------------------------------------
 
 
@@ -142,17 +159,21 @@ def handle_report(tickets):
 
 
 def handle_note_add(tickets):
-    ticket_id = input("Ticket ID: ")
-    author = input("Your name (note author): ")
-    message = input("Note message (5 to 300 characters): ")
-    note = add_note(tickets, ticket_id, author, message)
+    ticket = ask_ticket(tickets)
+    author = ask("Your name (note author): ", validate_note_author)
+    message = ask("Note message (5 to 300 characters): ", validate_note_message)
+
+    # add_note raises ValueError (for example on a resolved ticket) BEFORE
+    # changing anything. The exception skips save_tickets below, and run_menu
+    # prints the message and restores the in-memory tickets.
+    note = add_note(tickets, ticket["id"], author, message)
     save_tickets(tickets)
-    print(f"Added note {note['note_id']} to ticket {ticket_id.strip().upper()}.")
+    print(f"Added note {note['note_id']} to ticket {ticket['id']}.")
 
 
 def handle_note_view(tickets):
-    ticket = find_ticket(tickets, input("Ticket ID: "))
-    notes = sorted(ticket.get("notes", []), key=note_number)
+    ticket = ask_ticket(tickets)
+    notes = get_notes(tickets, ticket["id"])
     if not notes:
         print(f"Ticket {ticket['id']} has no notes.")
         return
@@ -238,7 +259,7 @@ def run_menu(tickets):
             action(tickets)
         except ValueError as error:
             tickets[:] = snapshot
-            print(f"Error: {error}")
+            print(f"Invalid input: {error}\n")
         except OSError as error:
             tickets[:] = snapshot
             print(f"Could not save tickets: {error}")
