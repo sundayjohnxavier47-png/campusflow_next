@@ -1,4 +1,9 @@
-VALID_STATUSES = ["open", "in_progress", "resolved"]
+from campusflow.validation import (
+    VALID_STATUSES,  # re-exported so old imports keep working
+    validate_staff_name,
+    validate_status,
+    validate_ticket_id,
+)
 
 ALLOWED_TRANSITIONS = {
     "open": ["in_progress"],
@@ -10,13 +15,10 @@ PRIORITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
 def find_ticket(tickets, ticket_id):
-    if not isinstance(ticket_id, str):
-        raise ValueError("Ticket ID must be text.")
-
-    ticket_id = ticket_id.strip().upper()
+    ticket_id = validate_ticket_id(ticket_id)
 
     for ticket in tickets:
-        if ticket["id"] == ticket_id:
+        if ticket.get("id") == ticket_id:
             return ticket
 
     raise ValueError(f"Ticket {ticket_id} was not found.")
@@ -24,27 +26,18 @@ def find_ticket(tickets, ticket_id):
 
 def assign_ticket(tickets, ticket_id, staff_name):
     ticket = find_ticket(tickets, ticket_id)
-
-    if not isinstance(staff_name, str) or not staff_name.strip():
-        raise ValueError("Staff name cannot be blank.")
+    staff_name = validate_staff_name(staff_name)
 
     if ticket["status"] == "resolved":
         raise ValueError("Resolved tickets must be reopened before changes.")
 
-    ticket["assigned_to"] = staff_name.strip()
+    ticket["assigned_to"] = staff_name
     return ticket
 
 
 def change_status(tickets, ticket_id, new_status):
     ticket = find_ticket(tickets, ticket_id)
-
-    if not isinstance(new_status, str):
-        raise ValueError("Status must be text.")
-
-    new_status = new_status.strip().lower()
-
-    if new_status not in VALID_STATUSES:
-        raise ValueError("Status must be open, in_progress, or resolved.")
+    new_status = validate_status(new_status)
 
     current = ticket["status"]
 
