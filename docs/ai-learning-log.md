@@ -63,3 +63,60 @@
 **Related file:** `campusflow/tickets.py`
 
 **What I can now explain without AI:** An experiment confirms what code does in a specific situation, but I must still evaluate whether that behaviour meets the product requirements.
+
+---
+
+## Cycle 1 — Validate before you change anything
+
+**Concept gap:** My baseline run showed that the old app only reported a blank title after all four fields had been typed, and I had not thought about the order of checks and changes inside a function.
+
+**Exact question I asked:** "Fix edge cases such as handling errors immediately when they occur, like an empty input, not after everything is done."
+
+**Summary of AI guidance:** Put each rule in one small validator that returns the cleaned value or raises ValueError. In business functions, run every check first and change data last, so a rejected action cannot leave a half-finished change.
+
+**Tiny unrelated experiment (book library):** One function changes the book and then checks the member name; the other checks first and changes last. I called both with a blank member name.
+
+My output:
+
+    bad -> error: Member name cannot be blank.
+    bad -> library after failed call: {'Dune': {'borrowed_by': '   '}}
+    good -> error: Member name cannot be blank.
+    good -> library after failed call: {'Dune': {'borrowed_by': None}}
+
+**Independent verification:** The "bad" version raised the error but still left the library changed. The "good" version left it untouched. In my project, tests/test_safety.py and test_rejected_notes_change_nothing_and_do_not_use_an_id in tests/test_notes.py compare a deep copy of the tickets before and after each rejected action, and they pass.
+
+**Engineering decision:** I adopted central validators in campusflow/validation.py. create_ticket, assign_ticket, change_status and add_note validate everything before changing anything. The immediate-prompt behaviour belongs in main.py, which Engineer B owns, so I will share the validators with them.
+
+**Reflection**
+- What I believed before: that validation could happen at the end of the process, as the old app did with the blank title.
+- Which claim I tested: that a function which checks after changing leaves bad data behind.
+- What the test showed: the failed "bad" call changed the library, and the "good" call did not.
+- What I changed in my code: all checks now run before any change in add_note and the workflow functions.
+- Test that guards it: tests/test_safety.py.
+- Could I explain this without AI: Yes. A function checks everything first and changes data last, so a rejected call leaves the data exactly as it was, and tests/test_safety.py proves it by comparing a copy of the tickets before and after.
+
+## Cycle 2 — JSON can load successfully and still hold unsafe data
+
+**Concept gap:** My earlier ID experiment (T001 and TABC) showed malformed IDs are silently ignored, and I had not considered what else a successfully loaded file could contain.
+
+**Exact question I asked:** "Help me test edge cases in my ticket ID generation and assess whether the results are safe."
+
+**Summary of AI guidance:** json.load only proves the text is valid JSON, not that the business data makes sense. Validate the whole collection after decoding and before using it, and return a new checked list so current memory is never half-overwritten.
+
+**Tiny unrelated experiment:** I decoded a two-item JSON list with the same id twice.
+
+My output:
+
+    [{'id': 'T001'}, {'id': 'T001'}]
+
+**Independent verification:** json.loads accepted the duplicate without complaint, so the duplicate check has to be written by me. In my project, test_duplicate_ids_rejected_and_memory_kept, test_invalid_records_rejected, test_notes_and_next_note_id_survive_reload and test_ids_stay_unique_after_reload in tests/test_storage.py pass.
+
+**Engineering decision:** load_tickets now validates the whole file (structure, required keys, duplicate IDs, standard category and urgency, priority consistency, status rules, note shapes) and returns a new list or raises ValueError. save_tickets refuses to write data that load would reject. Old files without notes still load with an empty notes list.
+
+**Reflection**
+- What I believed before: that malformed IDs would simply be ignored, and I had not considered what else a successfully loaded file could contain.
+- Which claim I tested: that json.load succeeding means the data is safe.
+- What the test showed: duplicates load without any error, so the check has to be mine.
+- What I changed in my code: added validate_ticket_collection in campusflow/storage.py.
+- Test that guards it: test_duplicate_ids_rejected_and_memory_kept.
+- Could I explain this without AI: Yes. json.load only checks the text is valid JSON, so I check the whole list myself (duplicate IDs, bad statuses, wrong priority, malformed notes) and return a new list or raise an error. Because the caller only swaps in the new list when it returns, a bad file can never half-overwrite my tickets.
