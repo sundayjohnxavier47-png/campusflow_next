@@ -38,6 +38,17 @@ def next_note_id(ticket):
     return f"N{max(numbers, default=0) + 1:03d}"
 
 
+def check_can_add_note(ticket):
+    """Raise ValueError unless the ticket accepts notes. Changes nothing."""
+    if ticket["status"] not in NOTE_ALLOWED_STATUSES:
+        raise ValueError(
+            "Notes can only be added to open or in_progress tickets. "
+            "Reopen the ticket first."
+        )
+
+
+
+
 def add_note(tickets, ticket_id, author, message):
     """Add a follow-up note to a ticket and return the new note.
 
@@ -69,6 +80,8 @@ def add_note(tickets, ticket_id, author, message):
     return note
 
 
+
+
 def get_notes(tickets, ticket_id):
     """Return a ticket's notes in note ID order (read-only)."""
     ticket = find_ticket(tickets, ticket_id)
@@ -77,3 +90,7 @@ def get_notes(tickets, ticket_id):
         notes,
         key=lambda note: (_note_number(note) is None, _note_number(note) or 0),
     )
+
+
+
+

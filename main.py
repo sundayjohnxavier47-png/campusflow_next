@@ -1,6 +1,7 @@
 import copy
 
 from campusflow.check_understanding import NOTES_FILE, run_check
+from campusflow.notes import add_note, check_can_add_note, get_notes
 from campusflow.notes import add_note, get_notes
 from campusflow.reports import format_report, generate_report
 from campusflow.search import (
@@ -160,12 +161,19 @@ def handle_report(tickets):
 
 def handle_note_add(tickets):
     ticket = ask_ticket(tickets)
+    check_can_add_note(ticket)  # fail fast, before asking for text
+    author = ask("Your name (note author): ", validate_note_author)
+    message = ask("Note message (5 to 300 characters): ", validate_note_message)
+
+    # add_note raises ValueError BEFORE changing anything. The exception
+    # skips save_tickets below, and run_menu prints the message and
+    # restores the in-memory ticket
     author = ask("Your name (note author): ", validate_note_author)
     message = ask("Note message (5 to 300 characters): ", validate_note_message)
 
     # add_note raises ValueError (for example on a resolved ticket) BEFORE
     # changing anything. The exception skips save_tickets below, and run_menu
-    # prints the message and restores the in-memory tickets.
+    # prints the message and restores the in-memory tickets
     note = add_note(tickets, ticket["id"], author, message)
     save_tickets(tickets)
     print(f"Added note {note['note_id']} to ticket {ticket['id']}.")
