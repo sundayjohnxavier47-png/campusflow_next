@@ -120,3 +120,60 @@ My output:
 - What I changed in my code: added validate_ticket_collection in campusflow/storage.py.
 - Test that guards it: test_duplicate_ids_rejected_and_memory_kept.
 - Could I explain this without AI: Yes. json.load only checks the text is valid JSON, so I check the whole list myself (duplicate IDs, bad statuses, wrong priority, malformed notes) and return a new list or raise an error. Because the caller only swaps in the new list when it returns, a bad file can never half-overwrite my tickets.
+
+
+
+
+
+
+## Fellow: [Otete Benjamin Agogo] - Engineer B (CampusFlow Next)
+
+### CampusFlow Next - Cycle 1: Replacing regex with plain string methods (AI suggestion CHANGED)
+
+- **Concept gap (what I did not understand before):** I did not understand regular expressions (regex). The first ID helper I was given used `re.compile(rf"^{re.escape(prefix)}(\d+)$", re.IGNORECASE)`. I could not explain what the pattern did, so I could not defend it in front of a mentor.
+
+- **Exact question I asked the AI:** "please, I do not understand regex, and I do not want to use, I can not defend it. replace this file."
+
+- **Summary of the AI's guidance:** The AI replaced the regex with four plain steps: (1) make the text upper case and check it `startswith` the prefix; (2) cut the prefix off with slicing, `id_text[len(prefix):]`; (3) check that what is left is only digits with `isascii()` and `isdigit()`; (4) turn it into a number with `int()` and keep the largest one. It also pointed out that two other files at that time still used regex and offered versions without it.
+
+- **My tiny unrelated experiment (book shelf IDs, nothing from CampusFlow):**
+
+  ```python
+  import re
+
+  def with_regex(text, prefix):
+      match = re.match(rf"^{re.escape(prefix)}(\d+)$", text, re.IGNORECASE)
+      return int(match.group(1)) if match else None
+
+  def with_string_methods(text, prefix):
+      text = str(text).strip().upper()
+      if not text.startswith(prefix.upper()):
+          return None
+      digits = text[len(prefix):]
+      if digits.isascii() and digits.isdigit():
+          return int(digits)
+      return None
+
+  for text in ["B007", "b012", "B", "BX1", "B1_0", "C005"]:
+      print(repr(text), with_regex(text, "B"), with_string_methods(text, "B"))
+
+  print(int("1_0"))
+  ```
+
+  Result: both versions gave the same answer on all six inputs (`7`, `12`, `None`, `None`, `None`, `None`), and `int("1_0")` printed `10`.
+
+- **Independent verification:** The comparison above shows the regex version was not wrong. The last line shows why the `isdigit()` check matters: `int()` on its own accepts text like `"1_0"` as the number 10, so the digits must be checked before converting. I also ran the whole project suite with `python3 -m unittest discover -s tests -v` and the ID-related tests still passed.
+
+- **Did I accept, change or reject the AI's suggestion?** Changed. I did not reject the regex because it gave wrong answers (the experiment shows it did not). I rejected it because I could not explain it, and a rule I cannot explain I cannot defend or maintain.
+
+- **Final engineering decision in my code:** I use only plain string methods. None of my files (`search.py`, `reports.py`, `questions.py`, `understanding_check.py`, `main.py`) contains regex. Check: `grep -rn "import re" campusflow main.py` shows nothing from my files.
+
+- **Reflection**
+  - What did I believe before? That a solution that works is enough. I had not asked whether I could explain it.
+  - What did the AI explain? How to do the same job with `startswith`, slicing, `isdigit` and `int`.
+  - Which claim did I test? That the plain version behaves exactly like the regex version.
+  - What did the test show? Identical results on all six inputs, and that `int("1_0")` is 10, so the digit check is needed.
+  - Which test guards this learning against future regression? The ID tests in the unit-test suite (new IDs continue from the highest number; malformed IDs are ignored).
+  - Could I explain this choice without AI in the room? Yes: "Cut off the prefix, check the rest is digits, convert to a number, keep the biggest, add one."
+
+---
