@@ -42,7 +42,7 @@ def parse_priority_filter(text):
     raise ValueError(f"Invalid priority. Choose one of: {', '.join(PRIORITY_ORDER)}.")
 
 
-def search_tickets(tickets, title_query="", category="", status="", priority=""):
+def search_tickets(tickets, title_query: str | None ="", category="", status="", priority=""):
     """Return the tickets that match EVERY supplied filter, in original order.
 
     * title_query: case-insensitive substring of the title (casefold). Only

@@ -1,4 +1,8 @@
 import json
+import json
+import unittest
+
+import main as menu
 
 def test_rejected_note_does_not_save(tmp_path, monkeypatch, capsys):
     tickets = [{
@@ -26,3 +30,8 @@ def test_rejected_note_does_not_save(tmp_path, monkeypatch, capsys):
     assert save_calls == []
     assert ticket_file.read_bytes() == before
     assert tickets[0]["notes"] == []
+
+
+
+    if __name__ == "__main__":
+        unittest.main()
